@@ -56,21 +56,38 @@ def ffprobe_duration(video_path: Path) -> float:
 
 def download_video(video_url: str, download_dir: Path) -> Path:
     template = str(download_dir / "%(id)s.%(ext)s")
-    output_path = run_command(
-        [
-            "yt-dlp",
-            "-f",
-            "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
-            "--merge-output-format",
-            "mp4",
-            "-o",
-            template,
-            "--print",
-            "after_move:filepath",
-            video_url,
-        ]
-    )
-    return Path(output_path)
+    attempts = [
+        # Prefer modern adaptive streams and remux to mp4.
+        ["-f", "bv*+ba/b", "--remux-video", "mp4"],
+        # Fallback to best available muxed or adaptive combination.
+        ["-f", "bestvideo+bestaudio/best", "--remux-video", "mp4"],
+        # Last resort: any best format.
+        ["-f", "best", "--remux-video", "mp4"],
+    ]
+
+    last_error = "Unknown yt-dlp error"
+    for extra_args in attempts:
+        try:
+            output_path = run_command(
+                [
+                    "yt-dlp",
+                    "--no-playlist",
+                    "--extractor-args",
+                    "youtube:player_client=android,web",
+                    *extra_args,
+                    "-o",
+                    template,
+                    "--print",
+                    "after_move:filepath",
+                    video_url,
+                ]
+            )
+            return Path(output_path)
+        except RuntimeError as exc:
+            last_error = str(exc)
+            continue
+
+    raise RuntimeError(f"Gagal download video setelah beberapa fallback format: {last_error}")
 
 
 def download_subtitles(video_url: str, download_dir: Path) -> None:

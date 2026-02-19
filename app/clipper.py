@@ -56,34 +56,29 @@ def ffprobe_duration(video_path: Path) -> float:
 
 def download_video(video_url: str, download_dir: Path) -> Path:
     template = str(download_dir / "%(id)s.%(ext)s")
+    base_args = ["yt-dlp", "--no-playlist", "--geo-bypass", "--force-ipv4"]
+
     attempts = [
-        # Use web client to avoid Android PO-token requirement.
+        # Let yt-dlp auto select available formats first.
+        [],
+        # Fallback to a broadly available pre-merged format.
+        ["-f", "b"],
+        # Try known web clients (no Android PO token requirement).
         [
             "--extractor-args",
             "youtube:player_client=web",
-            "-f",
-            "b/bv*+ba",
-            "--remux-video",
-            "mp4",
         ],
         [
             "--extractor-args",
             "youtube:player_client=web_safari",
-            "-f",
-            "b/bv*+ba",
-            "--remux-video",
-            "mp4",
         ],
         [
             "--extractor-args",
             "youtube:player_client=web_creator",
-            "-f",
-            "b/bv*+ba",
-            "--remux-video",
-            "mp4",
         ],
-        # Last fallback: let yt-dlp auto select.
-        [],
+        # Local fallback using browser cookies (works better for some videos).
+        ["--cookies-from-browser", "chrome"],
+        ["--cookies-from-browser", "edge"],
     ]
 
     last_error = "Unknown yt-dlp error"
@@ -91,11 +86,7 @@ def download_video(video_url: str, download_dir: Path) -> Path:
         try:
             output_path = run_command(
                 [
-                    "yt-dlp",
-                    "--no-playlist",
-                    "--geo-bypass",
-                    "--geo-bypass-country",
-                    "ID",
+                    *base_args,
                     *extra_args,
                     "-o",
                     template,
@@ -110,7 +101,7 @@ def download_video(video_url: str, download_dir: Path) -> Path:
             continue
 
     raise RuntimeError(
-        "Gagal download video (YouTube membatasi akses dari server cloud/403). "
+        "Gagal download video (format/signature YouTube dibatasi). "
         f"Detail terakhir: {last_error}"
     )
 

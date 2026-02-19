@@ -8,13 +8,11 @@ import streamlit as st
 
 from clipper import build_clips_for_local_file, build_clips_for_video
 from config import (
-    DEFAULT_CATEGORY,
-    DEFAULT_REGION,
     DOWNLOAD_DIR,
     OUTPUT_DIR,
     YOUTUBE_API_KEY,
 )
-from youtube_service import TrendingVideo, fetch_trending_videos
+from youtube_service import TrendingVideo, fetch_top_viewed_recent_videos
 
 
 def ensure_api_key() -> str:
@@ -40,8 +38,7 @@ def format_video_row(video: TrendingVideo) -> str:
 
 def render_trending_mode(
     api_key: str,
-    region: str,
-    category: str,
+    days_back: int,
     top_n: int,
     max_duration: int,
     clip_duration: int,
@@ -52,23 +49,21 @@ def render_trending_mode(
 
     can_run = bool(api_key)
     if st.button("1) Load Trending", disabled=not can_run):
-        with st.spinner("Mengambil video trending..."):
+        with st.spinner("Mencari video paling banyak ditonton..."):
             try:
-                videos = fetch_trending_videos(
+                videos = fetch_top_viewed_recent_videos(
                     api_key=api_key,
-                    region_code=region,
-                    category_id=category,
+                    days_back=days_back,
                     max_results=top_n,
                     min_duration_seconds=60,
                     max_duration_seconds=max_duration * 60,
                 )
                 st.session_state.trending_cache = videos
                 if videos:
-                    st.success(f"Dapat {len(videos)} video trending.")
+                    st.success(f"Dapat {len(videos)} video teratas (1-{days_back} hari terakhir).")
                 else:
                     st.warning(
-                        "Tidak ada hasil. Coba ganti Region (mis. US), kosongkan Category ID, "
-                        "atau naikkan batas durasi video."
+                        "Tidak ada hasil. Coba ubah rentang hari atau naikkan batas durasi video."
                     )
             except Exception as exc:
                 st.error(f"Gagal mengambil trending: {exc}")
@@ -144,7 +139,7 @@ def render_upload_mode(clip_duration: int, clips_per_video: int) -> None:
 
 def main() -> None:
     st.title("YouTube Trending -> Auto Shorts Clipper")
-    st.caption("Ambil video trending lalu potong jadi klip vertikal 9:16.")
+    st.caption("Cari video paling banyak ditonton 1-7 hari terakhir, lalu potong jadi klip vertikal 9:16.")
 
     is_cloud = bool(os.getenv("STREAMLIT_SHARING_MODE"))
     default_index = 1 if is_cloud else 0
@@ -158,14 +153,12 @@ def main() -> None:
     if is_cloud and mode == "YouTube Trending":
         st.warning("Di Streamlit Cloud, download YouTube bisa gagal (403/signature). Gunakan mode Upload untuk hasil stabil.")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     with col1:
-        region = st.text_input("Region", value=DEFAULT_REGION, max_chars=2).upper()
+        days_back = st.slider("Rentang hari", min_value=1, max_value=7, value=3)
     with col2:
-        category = st.text_input("Category ID", value=DEFAULT_CATEGORY, max_chars=4)
-    with col3:
         top_n = st.slider("Ambil top video", min_value=1, max_value=20, value=5)
-    with col4:
+    with col3:
         clips_per_video = st.slider("Clip/video", min_value=1, max_value=5, value=2)
 
     clip_duration = st.slider("Durasi per clip (detik)", min_value=10, max_value=60, value=30)
@@ -174,7 +167,7 @@ def main() -> None:
     api_key = ensure_api_key()
 
     if mode == "YouTube Trending":
-        render_trending_mode(api_key, region, category, top_n, max_duration, clip_duration, clips_per_video)
+        render_trending_mode(api_key, days_back, top_n, max_duration, clip_duration, clips_per_video)
     else:
         render_upload_mode(clip_duration, clips_per_video)
 

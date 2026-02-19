@@ -4,6 +4,7 @@ import glob
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
@@ -56,7 +57,15 @@ def ffprobe_duration(video_path: Path) -> float:
 
 def download_video(video_url: str, download_dir: Path) -> Path:
     template = str(download_dir / "%(id)s.%(ext)s")
-    base_args = ["yt-dlp", "--no-playlist", "--geo-bypass", "--force-ipv4"]
+    ytdlp_cmd = [sys.executable, "-m", "yt_dlp"]
+    base_args = [
+        *ytdlp_cmd,
+        "--no-playlist",
+        "--geo-bypass",
+        "--force-ipv4",
+        "--extractor-retries",
+        "5",
+    ]
 
     attempts = [
         # Let yt-dlp auto select available formats first.
@@ -110,7 +119,9 @@ def download_subtitles(video_url: str, download_dir: Path) -> None:
     template = str(download_dir / "%(id)s.%(ext)s")
     run_command(
         [
-            "yt-dlp",
+            sys.executable,
+            "-m",
+            "yt_dlp",
             "--skip-download",
             "--write-auto-subs",
             "--write-subs",

@@ -57,12 +57,33 @@ def ffprobe_duration(video_path: Path) -> float:
 def download_video(video_url: str, download_dir: Path) -> Path:
     template = str(download_dir / "%(id)s.%(ext)s")
     attempts = [
-        # Prefer modern adaptive streams and remux to mp4.
-        ["-f", "bv*+ba/b", "--remux-video", "mp4"],
-        # Fallback to best available muxed or adaptive combination.
-        ["-f", "bestvideo+bestaudio/best", "--remux-video", "mp4"],
-        # Last resort: any best format.
-        ["-f", "best", "--remux-video", "mp4"],
+        # Use web client to avoid Android PO-token requirement.
+        [
+            "--extractor-args",
+            "youtube:player_client=web",
+            "-f",
+            "b/bv*+ba",
+            "--remux-video",
+            "mp4",
+        ],
+        [
+            "--extractor-args",
+            "youtube:player_client=web_safari",
+            "-f",
+            "b/bv*+ba",
+            "--remux-video",
+            "mp4",
+        ],
+        [
+            "--extractor-args",
+            "youtube:player_client=web_creator",
+            "-f",
+            "b/bv*+ba",
+            "--remux-video",
+            "mp4",
+        ],
+        # Last fallback: let yt-dlp auto select.
+        [],
     ]
 
     last_error = "Unknown yt-dlp error"
@@ -72,8 +93,9 @@ def download_video(video_url: str, download_dir: Path) -> Path:
                 [
                     "yt-dlp",
                     "--no-playlist",
-                    "--extractor-args",
-                    "youtube:player_client=android,web",
+                    "--geo-bypass",
+                    "--geo-bypass-country",
+                    "ID",
                     *extra_args,
                     "-o",
                     template,
@@ -87,7 +109,10 @@ def download_video(video_url: str, download_dir: Path) -> Path:
             last_error = str(exc)
             continue
 
-    raise RuntimeError(f"Gagal download video setelah beberapa fallback format: {last_error}")
+    raise RuntimeError(
+        "Gagal download video (YouTube membatasi akses dari server cloud/403). "
+        f"Detail terakhir: {last_error}"
+    )
 
 
 def download_subtitles(video_url: str, download_dir: Path) -> None:

@@ -71,7 +71,13 @@ def main() -> None:
                     max_duration_seconds=max_duration * 60,
                 )
                 st.session_state.trending_cache = videos
-                st.success(f"Dapat {len(videos)} video trending.")
+                if videos:
+                    st.success(f"Dapat {len(videos)} video trending.")
+                else:
+                    st.warning(
+                        "Tidak ada hasil. Coba ganti Region (mis. US), kosongkan Category ID, "
+                        "atau naikkan batas durasi video."
+                    )
             except Exception as exc:
                 st.error(f"Gagal mengambil trending: {exc}")
 

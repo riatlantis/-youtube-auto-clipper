@@ -41,34 +41,43 @@ def fetch_trending_videos(
     max_duration_seconds: int = 2400,
 ) -> List[TrendingVideo]:
     youtube = build("youtube", "v3", developerKey=api_key)
-    response = (
-        youtube.videos()
-        .list(
-            part="snippet,statistics,contentDetails",
-            chart="mostPopular",
-            regionCode=region_code,
-            videoCategoryId=category_id,
-            maxResults=max_results,
-        )
-        .execute()
-    )
 
-    results: List[TrendingVideo] = []
+    def _query(category: str | None) -> dict:
+        params = {
+            "part": "snippet,statistics,contentDetails",
+            "chart": "mostPopular",
+            "regionCode": region_code,
+            "maxResults": max_results,
+        }
+        if category:
+            params["videoCategoryId"] = category
+        return youtube.videos().list(**params).execute()
+
+    response = _query(category_id.strip() or None)
+    # Fallback: beberapa region/category bisa kosong.
+    if not response.get("items"):
+        response = _query(None)
+
+    filtered_results: List[TrendingVideo] = []
+    unfiltered_results: List[TrendingVideo] = []
     for item in response.get("items", []):
         duration = parse_iso8601_duration(item.get("contentDetails", {}).get("duration", "PT0S"))
-        if duration < min_duration_seconds or duration > max_duration_seconds:
-            continue
 
         stats = item.get("statistics", {})
         snippet = item.get("snippet", {})
-        results.append(
-            TrendingVideo(
-                video_id=item.get("id", ""),
-                title=snippet.get("title", ""),
-                channel=snippet.get("channelTitle", ""),
-                views=int(stats.get("viewCount", 0)),
-                duration_seconds=duration,
-                published_at=snippet.get("publishedAt", ""),
-            )
+        video = TrendingVideo(
+            video_id=item.get("id", ""),
+            title=snippet.get("title", ""),
+            channel=snippet.get("channelTitle", ""),
+            views=int(stats.get("viewCount", 0)),
+            duration_seconds=duration,
+            published_at=snippet.get("publishedAt", ""),
         )
-    return results
+        unfiltered_results.append(video)
+        if min_duration_seconds <= duration <= max_duration_seconds:
+            filtered_results.append(video)
+
+    # Fallback: jika filter durasi terlalu ketat, tetap kembalikan data trending.
+    if filtered_results:
+        return filtered_results
+    return unfiltered_results

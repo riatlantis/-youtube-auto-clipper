@@ -238,18 +238,39 @@ def pick_even_segments(video_duration: float, clip_duration: int, max_clips: int
 def render_vertical_clip(source_video: Path, target_video: Path, start: float, end: float) -> None:
     profiles = [
         {
+            "codec": "h264_amf",
+            "vf": "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=24",
+            "preset": "speed",
+            "audio_bitrate": "96k",
+            "threads": "1",
+            "extra": [],
+        },
+        {
+            "codec": "libx264",
             "vf": "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30",
             "preset": "veryfast",
             "crf": "23",
             "audio_bitrate": "128k",
             "threads": "2",
+            "extra": [],
         },
         {
+            "codec": "libx264",
             "vf": "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=24",
             "preset": "ultrafast",
             "crf": "28",
             "audio_bitrate": "96k",
             "threads": "1",
+            "extra": ["-tune", "zerolatency", "-x264-params", "ref=1:rc-lookahead=0:subme=0:me=dia"],
+        },
+        {
+            "codec": "libx264",
+            "vf": "scale=540:960:force_original_aspect_ratio=increase,crop=540:960,fps=20",
+            "preset": "ultrafast",
+            "crf": "32",
+            "audio_bitrate": "64k",
+            "threads": "1",
+            "extra": ["-tune", "zerolatency", "-x264-params", "ref=1:rc-lookahead=0:subme=0:me=dia"],
         },
     ]
 
@@ -269,17 +290,21 @@ def render_vertical_clip(source_video: Path, target_video: Path, start: float, e
                     "-vf",
                     profile["vf"],
                     "-c:v",
-                    "libx264",
+                    profile["codec"],
                     "-preset",
                     profile["preset"],
-                    "-crf",
-                    profile["crf"],
+                    *([] if profile["codec"] == "h264_amf" else ["-crf", profile["crf"]]),
                     "-threads",
                     profile["threads"],
+                    "-pix_fmt",
+                    "yuv420p",
                     "-c:a",
                     "aac",
                     "-b:a",
                     profile["audio_bitrate"],
+                    *profile["extra"],
+                    "-movflags",
+                    "+faststart",
                     str(target_video),
                 ]
             )
@@ -324,6 +349,25 @@ def build_clips_for_video(
     safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", video_id)
     for idx, segment in enumerate(picked, start=1):
         out_path = output_dir / f"{safe_id}_clip_{idx:02d}.mp4"
+        render_vertical_clip(source_video, out_path, segment.start, segment.end)
+        produced.append(out_path)
+    return produced
+
+
+def build_clips_for_local_file(
+    source_video: Path,
+    source_id: str,
+    output_dir: Path,
+    clip_duration: int = 30,
+    max_clips: int = 3,
+) -> List[Path]:
+    video_duration = ffprobe_duration(source_video)
+    picked = pick_even_segments(video_duration, clip_duration, max_clips)
+
+    produced: List[Path] = []
+    safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", source_id)
+    for idx, segment in enumerate(picked, start=1):
+        out_path = output_dir / f"{safe_id}_upload_clip_{idx:02d}.mp4"
         render_vertical_clip(source_video, out_path, segment.start, segment.end)
         produced.append(out_path)
     return produced

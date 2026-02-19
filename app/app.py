@@ -1,11 +1,12 @@
 ﻿from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import List
 
 import streamlit as st
 
-from clipper import build_clips_for_video
+from clipper import build_clips_for_local_file, build_clips_for_video
 from config import (
     DEFAULT_CATEGORY,
     DEFAULT_REGION,
@@ -14,6 +15,7 @@ from config import (
     YOUTUBE_API_KEY,
 )
 from youtube_service import TrendingVideo, fetch_trending_videos
+
 
 def ensure_api_key() -> str:
     api_key = st.text_input(
@@ -36,29 +38,19 @@ def format_video_row(video: TrendingVideo) -> str:
     )
 
 
-def main() -> None:
-    st.title("YouTube Trending -> Auto Shorts Clipper")
-    st.caption("Ambil video trending, lalu potong otomatis jadi klip vertikal 9:16.")
-
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        region = st.text_input("Region", value=DEFAULT_REGION, max_chars=2).upper()
-    with col2:
-        category = st.text_input("Category ID", value=DEFAULT_CATEGORY, max_chars=4)
-    with col3:
-        top_n = st.slider("Ambil top video", min_value=1, max_value=20, value=5)
-    with col4:
-        clips_per_video = st.slider("Clip/video", min_value=1, max_value=5, value=2)
-
-    clip_duration = st.slider("Durasi per clip (detik)", min_value=10, max_value=60, value=30)
-    max_duration = st.slider("Maks durasi video sumber (menit)", min_value=2, max_value=60, value=20)
-
-    api_key = ensure_api_key()
-    can_run = bool(api_key)
-
+def render_trending_mode(
+    api_key: str,
+    region: str,
+    category: str,
+    top_n: int,
+    max_duration: int,
+    clip_duration: int,
+    clips_per_video: int,
+) -> None:
     if "trending_cache" not in st.session_state:
         st.session_state.trending_cache = []
 
+    can_run = bool(api_key)
     if st.button("1) Load Trending", disabled=not can_run):
         with st.spinner("Mengambil video trending..."):
             try:
@@ -118,6 +110,73 @@ def main() -> None:
                         failed += 1
                         st.error(f"Gagal proses {video.title}: {exc}")
             st.success(f"Selesai. Total clip: {total}. Video gagal: {failed}.")
+
+
+def render_upload_mode(clip_duration: int, clips_per_video: int) -> None:
+    st.info("Mode ini paling stabil untuk Streamlit Cloud. Upload file video, lalu app akan potong otomatis.")
+    upload = st.file_uploader("Upload video", type=["mp4", "mov", "m4v", "webm"])
+
+    if st.button("Generate Clips dari Upload", type="primary"):
+        if upload is None:
+            st.warning("Upload 1 file video dulu.")
+            return
+
+        source_path = Path(DOWNLOAD_DIR) / f"upload_{upload.name}"
+        source_path.write_bytes(upload.getbuffer())
+
+        with st.spinner("Memproses upload jadi short clips..."):
+            try:
+                clips = build_clips_for_local_file(
+                    source_video=source_path,
+                    source_id=upload.name,
+                    output_dir=Path(OUTPUT_DIR),
+                    clip_duration=clip_duration,
+                    max_clips=clips_per_video,
+                )
+                for clip in clips:
+                    st.write(f"OK: `{clip.name}`")
+                    with st.expander(f"Preview {clip.name}"):
+                        st.video(str(clip))
+                st.success(f"Selesai. Total clip: {len(clips)}.")
+            except Exception as exc:
+                st.error(f"Gagal proses upload: {exc}")
+
+
+def main() -> None:
+    st.title("YouTube Trending -> Auto Shorts Clipper")
+    st.caption("Ambil video trending lalu potong jadi klip vertikal 9:16.")
+
+    is_cloud = bool(os.getenv("STREAMLIT_SHARING_MODE"))
+    default_index = 1 if is_cloud else 0
+    mode = st.radio(
+        "Mode Sumber",
+        ["YouTube Trending", "Upload MP4 (Cloud Safe)"],
+        horizontal=True,
+        index=default_index,
+    )
+
+    if is_cloud and mode == "YouTube Trending":
+        st.warning("Di Streamlit Cloud, download YouTube bisa gagal (403/signature). Gunakan mode Upload untuk hasil stabil.")
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        region = st.text_input("Region", value=DEFAULT_REGION, max_chars=2).upper()
+    with col2:
+        category = st.text_input("Category ID", value=DEFAULT_CATEGORY, max_chars=4)
+    with col3:
+        top_n = st.slider("Ambil top video", min_value=1, max_value=20, value=5)
+    with col4:
+        clips_per_video = st.slider("Clip/video", min_value=1, max_value=5, value=2)
+
+    clip_duration = st.slider("Durasi per clip (detik)", min_value=10, max_value=60, value=30)
+    max_duration = st.slider("Maks durasi video sumber (menit)", min_value=2, max_value=60, value=20)
+
+    api_key = ensure_api_key()
+
+    if mode == "YouTube Trending":
+        render_trending_mode(api_key, region, category, top_n, max_duration, clip_duration, clips_per_video)
+    else:
+        render_upload_mode(clip_duration, clips_per_video)
 
     st.divider()
     st.markdown("### Folder Output")

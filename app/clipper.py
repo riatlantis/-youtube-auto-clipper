@@ -236,36 +236,59 @@ def pick_even_segments(video_duration: float, clip_duration: int, max_clips: int
 
 
 def render_vertical_clip(source_video: Path, target_video: Path, start: float, end: float) -> None:
-    vf = (
-        "scale=1080:1920:force_original_aspect_ratio=increase,"
-        "crop=1080:1920,"
-        "fps=30"
-    )
-    run_command(
-        [
-            "ffmpeg",
-            "-y",
-            "-ss",
-            f"{start:.3f}",
-            "-to",
-            f"{end:.3f}",
-            "-i",
-            str(source_video),
-            "-vf",
-            vf,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "23",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            str(target_video),
-        ]
-    )
+    profiles = [
+        {
+            "vf": "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30",
+            "preset": "veryfast",
+            "crf": "23",
+            "audio_bitrate": "128k",
+            "threads": "2",
+        },
+        {
+            "vf": "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=24",
+            "preset": "ultrafast",
+            "crf": "28",
+            "audio_bitrate": "96k",
+            "threads": "1",
+        },
+    ]
+
+    last_error = "Unknown ffmpeg error"
+    for profile in profiles:
+        try:
+            run_command(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-ss",
+                    f"{start:.3f}",
+                    "-to",
+                    f"{end:.3f}",
+                    "-i",
+                    str(source_video),
+                    "-vf",
+                    profile["vf"],
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    profile["preset"],
+                    "-crf",
+                    profile["crf"],
+                    "-threads",
+                    profile["threads"],
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    profile["audio_bitrate"],
+                    str(target_video),
+                ]
+            )
+            return
+        except RuntimeError as exc:
+            last_error = str(exc)
+            continue
+
+    raise RuntimeError(f"Gagal render clip setelah fallback profil encode: {last_error}")
 
 
 def build_clips_for_video(

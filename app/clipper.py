@@ -3,6 +3,7 @@ from __future__ import annotations
 import glob
 import os
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -105,14 +106,28 @@ def _is_cookie_db_error(message: str) -> bool:
     return "cookies database" in lowered and "could not find" in lowered
 
 
+def _available_js_runtimes() -> List[str]:
+    runtimes: List[Tuple[str, str]] = [
+        ("deno", "deno"),
+        ("node", "node"),
+        ("bun", "bun"),
+        ("quickjs", "qjs"),
+    ]
+    return [runtime for runtime, executable in runtimes if shutil.which(executable)]
+
+
 def download_video(video_url: str, download_dir: Path) -> Path:
     template = str(download_dir / "%(id)s.%(ext)s")
     ytdlp_cmd = [sys.executable, "-m", "yt_dlp"]
+    js_runtime_args: List[str] = []
+    js_runtimes = _available_js_runtimes()
+    if js_runtimes:
+        for runtime in js_runtimes:
+            js_runtime_args.extend(["--js-runtimes", runtime])
     base_args = [
         *ytdlp_cmd,
         "--ignore-config",
-        "--js-runtimes",
-        "deno,node",
+        *js_runtime_args,
         "--no-playlist",
         "--geo-bypass",
         "--force-ipv4",
@@ -149,6 +164,8 @@ def download_video(video_url: str, download_dir: Path) -> Path:
             "youtube:player_client=tv_embedded",
         ],
     ]
+    if not js_runtimes:
+        attempts.insert(1, ["--extractor-args", "youtube:player_skip=js"])
     # Local fallback using browser cookies only when it is explicitly viable.
     if _should_use_browser_cookies():
         attempts.extend(_existing_cookie_browser_attempts())

@@ -8,6 +8,8 @@ import streamlit as st
 
 from clipper import build_clips_for_local_file, build_clips_for_video
 from config import (
+    DEFAULT_CATEGORY,
+    DEFAULT_REGION,
     DOWNLOAD_DIR,
     OUTPUT_DIR,
     YOUTUBE_API_KEY,
@@ -36,6 +38,29 @@ def format_video_row(video: TrendingVideo) -> str:
     )
 
 
+def render_download_section() -> None:
+    st.divider()
+    st.markdown("### Download Hasil")
+
+    clip_results = st.session_state.get("clip_results", [])
+    if not clip_results:
+        st.info("Belum ada clip yang bisa di-download.")
+        return
+
+    for clip_path_str in clip_results:
+        clip_path = Path(clip_path_str)
+        if not clip_path.exists():
+            continue
+        with clip_path.open("rb") as file_handle:
+            st.download_button(
+                label=f"Download {clip_path.name}",
+                data=file_handle.read(),
+                file_name=clip_path.name,
+                mime="video/mp4",
+                key=f"dl_{clip_path.name}",
+            )
+
+
 def render_trending_mode(
     api_key: str,
     days_back: int,
@@ -57,6 +82,8 @@ def render_trending_mode(
                     max_results=top_n,
                     min_duration_seconds=60,
                     max_duration_seconds=max_duration * 60,
+                    region_code=DEFAULT_REGION,
+                    category_id=DEFAULT_CATEGORY,
                 )
                 st.session_state.trending_cache = videos
                 if videos:
@@ -85,6 +112,7 @@ def render_trending_mode(
             with st.spinner("Generate clip berjalan..."):
                 total = 0
                 failed = 0
+                collected: List[str] = []
                 for video in selected_videos:
                     try:
                         video_url = f"https://www.youtube.com/watch?v={video.video_id}"
@@ -97,6 +125,7 @@ def render_trending_mode(
                             max_clips=clips_per_video,
                         )
                         total += len(clips)
+                        collected.extend([str(clip) for clip in clips])
                         for clip in clips:
                             st.write(f"OK: `{clip.name}`")
                             with st.expander(f"Preview {clip.name}"):
@@ -104,6 +133,7 @@ def render_trending_mode(
                     except Exception as exc:
                         failed += 1
                         st.error(f"Gagal proses {video.title}: {exc}")
+            st.session_state["clip_results"] = collected
             st.success(f"Selesai. Total clip: {total}. Video gagal: {failed}.")
 
 
@@ -128,6 +158,7 @@ def render_upload_mode(clip_duration: int, clips_per_video: int) -> None:
                     clip_duration=clip_duration,
                     max_clips=clips_per_video,
                 )
+                st.session_state["clip_results"] = [str(clip) for clip in clips]
                 for clip in clips:
                     st.write(f"OK: `{clip.name}`")
                     with st.expander(f"Preview {clip.name}"):
@@ -171,10 +202,7 @@ def main() -> None:
     else:
         render_upload_mode(clip_duration, clips_per_video)
 
-    st.divider()
-    st.markdown("### Folder Output")
-    st.code(str(OUTPUT_DIR))
-    st.info("Pastikan `ffmpeg`, `ffprobe`, dan `yt-dlp` tersedia di PATH sistem.")
+    render_download_section()
 
 
 if __name__ == "__main__":

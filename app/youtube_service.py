@@ -106,29 +106,55 @@ def fetch_top_viewed_recent_videos(
     max_results: int = 10,
     min_duration_seconds: int = 60,
     max_duration_seconds: int = 2400,
+    region_code: str = "ID",
+    category_id: str = "24",
 ) -> List[TrendingVideo]:
     days_back = max(1, min(7, days_back))
     youtube = build("youtube", "v3", developerKey=api_key)
 
-    published_after = (datetime.now(timezone.utc) - timedelta(days=days_back)).isoformat()
     candidate_limit = max(25, min(50, max_results * 4))
 
-    search_response = (
-        youtube.search()
-        .list(
-            part="id",
-            type="video",
-            order="viewCount",
-            publishedAfter=published_after,
-            maxResults=candidate_limit,
-        )
-        .execute()
-    )
+    def _search_ids(published_after: str | None) -> List[str]:
+        params = {
+            "part": "id",
+            "type": "video",
+            "order": "viewCount",
+            "regionCode": region_code,
+            "maxResults": candidate_limit,
+        }
+        if published_after:
+            params["publishedAfter"] = published_after
+        if category_id.strip():
+            params["videoCategoryId"] = category_id.strip()
+        response = youtube.search().list(**params).execute()
+        return [
+            item.get("id", {}).get("videoId", "")
+            for item in response.get("items", [])
+            if item.get("id", {}).get("videoId", "")
+        ]
 
-    ids = [item.get("id", {}).get("videoId", "") for item in search_response.get("items", [])]
-    ids = [video_id for video_id in ids if video_id]
+    published_after_primary = (datetime.now(timezone.utc) - timedelta(days=days_back)).isoformat()
+    published_after_relaxed = (datetime.now(timezone.utc) - timedelta(days=max(14, days_back * 3))).isoformat()
+
+    ids: List[str] = []
+    for published_after in [published_after_primary, published_after_relaxed, None]:
+        try:
+            ids = _search_ids(published_after)
+        except Exception:
+            ids = []
+        if ids:
+            break
+
+    # Final fallback to chart endpoint if search API is empty/restricted.
     if not ids:
-        return []
+        return fetch_trending_videos(
+            api_key=api_key,
+            region_code=region_code,
+            category_id=category_id,
+            max_results=max_results,
+            min_duration_seconds=min_duration_seconds,
+            max_duration_seconds=max_duration_seconds,
+        )
 
     details_response = (
         youtube.videos()
@@ -167,5 +193,15 @@ def fetch_top_viewed_recent_videos(
             filtered_results.append(video)
 
     target = filtered_results if filtered_results else unfiltered_results
+    if not target:
+        return fetch_trending_videos(
+            api_key=api_key,
+            region_code=region_code,
+            category_id=category_id,
+            max_results=max_results,
+            min_duration_seconds=min_duration_seconds,
+            max_duration_seconds=max_duration_seconds,
+        )
+
     target.sort(key=lambda v: (v.score, v.views), reverse=True)
     return target[:max_results]

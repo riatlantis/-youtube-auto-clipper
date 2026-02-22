@@ -111,6 +111,8 @@ def download_video(video_url: str, download_dir: Path) -> Path:
     base_args = [
         *ytdlp_cmd,
         "--ignore-config",
+        "--js-runtimes",
+        "deno,node",
         "--no-playlist",
         "--geo-bypass",
         "--force-ipv4",
@@ -121,6 +123,8 @@ def download_video(video_url: str, download_dir: Path) -> Path:
     attempts = [
         # Let yt-dlp auto select available formats first.
         [],
+        # Prefer broadly available progressive MP4 first.
+        ["-f", "18/b[ext=mp4]/b"],
         # Fallback to a broadly available pre-merged format.
         ["-f", "b"],
         # Try known web clients (no Android PO token requirement).
@@ -135,6 +139,14 @@ def download_video(video_url: str, download_dir: Path) -> Path:
         [
             "--extractor-args",
             "youtube:player_client=web_creator",
+        ],
+        [
+            "--extractor-args",
+            "youtube:player_client=ios",
+        ],
+        [
+            "--extractor-args",
+            "youtube:player_client=tv_embedded",
         ],
     ]
     # Local fallback using browser cookies only when it is explicitly viable.

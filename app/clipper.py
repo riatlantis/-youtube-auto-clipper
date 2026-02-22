@@ -33,7 +33,10 @@ class ClipSegment:
 
 
 def run_command(args: List[str]) -> str:
-    process = subprocess.run(args, capture_output=True, text=True)
+    env = os.environ.copy()
+    # Prevent yt-dlp from reading implicit user-level config in hosted environments.
+    env.setdefault("YTDLP_NO_CONFIG", "1")
+    process = subprocess.run(args, capture_output=True, text=True, env=env)
     if process.returncode != 0:
         raise RuntimeError(process.stderr.strip() or "Command failed")
     return process.stdout.strip()
@@ -55,11 +58,59 @@ def ffprobe_duration(video_path: Path) -> float:
     return float(output or 0.0)
 
 
+def _existing_cookie_browser_attempts() -> List[List[str]]:
+    candidates: List[Tuple[str, List[Path]]] = []
+    home = Path.home()
+
+    if sys.platform.startswith("win"):
+        local_app_data = os.environ.get("LOCALAPPDATA", "")
+        if local_app_data:
+            base = Path(local_app_data)
+            candidates.extend(
+                [
+                    ("chrome", [base / "Google" / "Chrome" / "User Data" / "Default" / "Network" / "Cookies"]),
+                    ("edge", [base / "Microsoft" / "Edge" / "User Data" / "Default" / "Network" / "Cookies"]),
+                ]
+            )
+    elif sys.platform == "darwin":
+        candidates.extend(
+            [
+                ("chrome", [home / "Library" / "Application Support" / "Google" / "Chrome" / "Default" / "Cookies"]),
+                ("edge", [home / "Library" / "Application Support" / "Microsoft Edge" / "Default" / "Cookies"]),
+            ]
+        )
+    else:
+        candidates.extend(
+            [
+                ("chrome", [home / ".config" / "google-chrome" / "Default" / "Cookies"]),
+                ("edge", [home / ".config" / "microsoft-edge" / "Default" / "Cookies"]),
+            ]
+        )
+
+    attempts: List[List[str]] = []
+    for browser, paths in candidates:
+        if any(path.exists() for path in paths):
+            attempts.append(["--cookies-from-browser", browser])
+    return attempts
+
+
+def _should_use_browser_cookies() -> bool:
+    # Safe-by-default: browser cookies are disabled unless explicitly enabled.
+    enabled = os.getenv("YT_DLP_ENABLE_BROWSER_COOKIES", "").strip().lower()
+    return enabled in {"1", "true", "yes", "on"}
+
+
+def _is_cookie_db_error(message: str) -> bool:
+    lowered = message.lower()
+    return "cookies database" in lowered and "could not find" in lowered
+
+
 def download_video(video_url: str, download_dir: Path) -> Path:
     template = str(download_dir / "%(id)s.%(ext)s")
     ytdlp_cmd = [sys.executable, "-m", "yt_dlp"]
     base_args = [
         *ytdlp_cmd,
+        "--ignore-config",
         "--no-playlist",
         "--geo-bypass",
         "--force-ipv4",
@@ -85,12 +136,13 @@ def download_video(video_url: str, download_dir: Path) -> Path:
             "--extractor-args",
             "youtube:player_client=web_creator",
         ],
-        # Local fallback using browser cookies (works better for some videos).
-        ["--cookies-from-browser", "chrome"],
-        ["--cookies-from-browser", "edge"],
     ]
+    # Local fallback using browser cookies only when it is explicitly viable.
+    if _should_use_browser_cookies():
+        attempts.extend(_existing_cookie_browser_attempts())
 
     last_error = "Unknown yt-dlp error"
+    primary_error = ""
     for extra_args in attempts:
         try:
             output_path = run_command(
@@ -106,12 +158,16 @@ def download_video(video_url: str, download_dir: Path) -> Path:
             )
             return Path(output_path)
         except RuntimeError as exc:
-            last_error = str(exc)
+            current_error = str(exc)
+            last_error = current_error
+            if not primary_error and not _is_cookie_db_error(current_error):
+                primary_error = current_error
             continue
 
+    final_error = primary_error or last_error
     raise RuntimeError(
         "Gagal download video (format/signature YouTube dibatasi). "
-        f"Detail terakhir: {last_error}"
+        f"Detail terakhir: {final_error}"
     )
 
 
@@ -122,6 +178,7 @@ def download_subtitles(video_url: str, download_dir: Path) -> None:
             sys.executable,
             "-m",
             "yt_dlp",
+            "--ignore-config",
             "--skip-download",
             "--write-auto-subs",
             "--write-subs",

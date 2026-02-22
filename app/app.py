@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import List
 
@@ -17,16 +18,24 @@ from config import (
 from youtube_service import TrendingVideo, fetch_top_viewed_recent_videos
 
 
-def ensure_api_key() -> str:
-    api_key = st.text_input(
+_YOUTUBE_API_KEY_RE = re.compile(r"^AIza[0-9A-Za-z_-]{35}$")
+
+
+def ensure_api_key() -> tuple[str, bool]:
+    raw_api_key = st.text_input(
         "YouTube API Key",
         value=YOUTUBE_API_KEY,
         type="password",
         help="Buat di Google Cloud Console > YouTube Data API v3",
     )
+    api_key = raw_api_key.strip()
     if not api_key:
         st.warning("Isi YouTube API Key dulu agar data trending bisa diambil.")
-    return api_key
+        return "", False
+    if not _YOUTUBE_API_KEY_RE.match(api_key):
+        st.error("Format YouTube API Key tidak valid. Gunakan key Google API yang diawali `AIza`.")
+        return api_key, False
+    return api_key, True
 
 
 def format_video_row(video: TrendingVideo) -> str:
@@ -63,6 +72,7 @@ def render_download_section() -> None:
 
 def render_trending_mode(
     api_key: str,
+    api_key_valid: bool,
     days_back: int,
     top_n: int,
     max_duration: int,
@@ -72,7 +82,7 @@ def render_trending_mode(
     if "trending_cache" not in st.session_state:
         st.session_state.trending_cache = []
 
-    can_run = bool(api_key)
+    can_run = bool(api_key) and api_key_valid
     if st.button("1) Load Trending", disabled=not can_run):
         with st.spinner("Mencari video paling banyak ditonton..."):
             try:
@@ -195,10 +205,18 @@ def main() -> None:
     clip_duration = st.slider("Durasi per clip (detik)", min_value=10, max_value=60, value=30)
     max_duration = st.slider("Maks durasi video sumber (menit)", min_value=2, max_value=60, value=20)
 
-    api_key = ensure_api_key()
+    api_key, api_key_valid = ensure_api_key()
 
     if mode == "YouTube Trending":
-        render_trending_mode(api_key, days_back, top_n, max_duration, clip_duration, clips_per_video)
+        render_trending_mode(
+            api_key,
+            api_key_valid,
+            days_back,
+            top_n,
+            max_duration,
+            clip_duration,
+            clips_per_video,
+        )
     else:
         render_upload_mode(clip_duration, clips_per_video)
 
